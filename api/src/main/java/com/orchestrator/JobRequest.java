@@ -5,4 +5,5 @@ import lombok.Data;
 @Data
 public class JobRequest {
     private String text;
+    private String taskType = "summarize";
 }

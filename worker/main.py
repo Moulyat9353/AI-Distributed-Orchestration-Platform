@@ -3,16 +3,26 @@ import os
 import logging
 import redis
 from kafka import KafkaConsumer
-from processors.summarizer import summarize
+from processors.summarizer import summarize, analyze_sentiment, extract_keywords
 from prometheus_client import Counter, start_http_server
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-JOBS_PROCESSED = Counter("worker_jobs_processed_total", "Jobs processed")
-JOBS_FAILED    = Counter("worker_jobs_failed_total", "Jobs failed")
+JOBS_PROCESSED = Counter("worker_jobs_processed_total", "Jobs processed", ["task_type"])
+JOBS_FAILED    = Counter("worker_jobs_failed_total", "Jobs failed", ["task_type"])
 
-redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379"))
+
+def process(task_type: str, text: str) -> str:
+    if task_type == "summarize":
+        return summarize(text)
+    elif task_type == "sentiment":
+        return analyze_sentiment(text)
+    elif task_type == "keywords":
+        return extract_keywords(text)
+    else:
+        raise ValueError(f"Unknown task type: {task_type}")
 
 def run():
     start_http_server(8001)
@@ -29,26 +39,27 @@ def run():
     log.info("Worker started, listening on ai-jobs topic...")
 
     for message in consumer:
-        job   = message.value
-        job_id = job["job_id"]
-        text   = job["text"]
+        job       = message.value
+        job_id    = job["job_id"]
+        text      = job["text"]
+        task_type = job.get("task_type", "summarize")
 
-        log.info(f"Processing job {job_id}")
+        log.info(f"Processing job {job_id} | task: {task_type}")
         try:
             redis_client.hset(f"job:{job_id}", "status", "PROCESSING")
-            result = summarize(text)
+            result = process(task_type, text)
             redis_client.hset(f"job:{job_id}", mapping={
                 "status": "COMPLETED",
                 "result": result
             })
-            JOBS_PROCESSED.inc()
-            log.info(f"Completed job {job_id}")
+            JOBS_PROCESSED.labels(task_type=task_type).inc()
+            log.info(f"Completed job {job_id} | task: {task_type}")
         except Exception as e:
             redis_client.hset(f"job:{job_id}", mapping={
-                "status": "FAILED",
-                "result": str(e)
+                "status":  "FAILED",
+                "result":  str(e)
             })
-            JOBS_FAILED.inc()
+            JOBS_FAILED.labels(task_type=task_type).inc()
             log.error(f"Failed job {job_id}: {e}")
 
 if __name__ == "__main__":

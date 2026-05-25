@@ -25,6 +25,9 @@ public class Job {
 
     @Column(columnDefinition = "TEXT")
     private String inputText;
+    
+    @Column
+    private String taskType;
 
     @Column(columnDefinition = "TEXT")
     private String result;
