@@ -1,30 +1,29 @@
-from transformers import pipeline
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lsa import LsaSummarizer
+from textblob import TextBlob
+import nltk
 
-summarizer_pipeline = pipeline(
-    "summarization",
-    model="facebook/bart-large-cnn",
-    max_length=130,
-    min_length=30
-)
-
-sentiment_pipeline = pipeline(
-    "sentiment-analysis",
-    model="distilbert-base-uncased-finetuned-sst-2-english"
-)
+nltk.download('punkt', quiet=True)
+nltk.download('punkt_tab', quiet=True)
+nltk.download('stopwords', quiet=True)
 
 def summarize(text: str) -> str:
-    chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
-    summaries = []
-    for chunk in chunks:
-        if len(chunk.strip()) == 0:
-            continue
-        result = summarizer_pipeline(chunk, truncation=True)
-        summaries.append(result[0]["summary_text"])
-    return " ".join(summaries)
+    parser = PlaintextParser.from_string(text, Tokenizer("english"))
+    summarizer = LsaSummarizer()
+    summary = summarizer(parser.document, 2)
+    return " ".join([str(sentence) for sentence in summary])
 
 def analyze_sentiment(text: str) -> str:
-    result = sentiment_pipeline(text[:512])[0]
-    return f"{result['label']} (confidence: {result['score']:.2f})"
+    analysis = TextBlob(text)
+    score = analysis.sentiment.polarity
+    if score > 0.1:
+        label = "POSITIVE"
+    elif score < -0.1:
+        label = "NEGATIVE"
+    else:
+        label = "NEUTRAL"
+    return f"{label} (confidence: {abs(score):.2f})"
 
 def extract_keywords(text: str) -> str:
     words = text.lower().split()
