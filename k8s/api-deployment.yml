@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
       - name: api
-        image: ai-orchestration-api:latest
-        imagePullPolicy: Never
+        image: gcr.io/ai-orchestration-moulya/ai-orchestration-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         envFrom:

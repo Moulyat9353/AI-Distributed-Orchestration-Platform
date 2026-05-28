@@ -4,6 +4,6 @@ metadata:
   name: app-config
   namespace: orchestrator
 data:
-  KAFKA_BOOTSTRAP: "kafka:29092"
+  KAFKA_BOOTSTRAP: "kafka-svc:9092"
   REDIS_URL: "redis://redis:6379"
   DATABASE_URL: "jdbc:postgresql://postgres:5432/orchestrator"

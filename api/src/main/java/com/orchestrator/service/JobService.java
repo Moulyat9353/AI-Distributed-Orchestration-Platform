@@ -4,19 +4,19 @@ import com.orchestrator.model.Job;
 import com.orchestrator.model.JobRequest;
 import com.orchestrator.model.JobResponse;
 import com.orchestrator.repository.JobRepository;
-
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
-import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.util.concurrent.ListenableFuture;
+import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -29,29 +29,50 @@ public class JobService {
     private final MeterRegistry meterRegistry;
 
     public JobResponse submitJob(JobRequest request) {
-    Job job = jobRepository.save(Job.builder()
-            .status(Job.JobStatus.QUEUED)
-            .inputText(request.getText())
-            .taskType(request.getTaskType())
-            .createdAt(LocalDateTime.now())
-            .updatedAt(LocalDateTime.now())
-            .build());
 
-    String jobId = job.getId().toString();
+        Job job = jobRepository.save(Job.builder()
+                .status(Job.JobStatus.QUEUED)
+                .inputText(request.getText())
+                .taskType(request.getTaskType())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
 
-    redisTemplate.opsForHash().put("job:" + jobId, "status", "QUEUED");
+        String jobId = job.getId().toString();
 
-    Map<String, String> message = new HashMap<>();
-    message.put("job_id", jobId);
-    message.put("text", request.getText());
-    message.put("task_type", request.getTaskType());  // add this
-    kafkaTemplate.send("ai-jobs", message);
+        redisTemplate.opsForHash().put("job:" + jobId, "status", "QUEUED");
 
-    meterRegistry.counter("jobs_submitted_total",
-            "task_type", request.getTaskType()).increment();
+        Map<String, String> message = new HashMap<>();
+        message.put("job_id", jobId);
+        message.put("text", request.getText());
+        message.put("task_type", request.getTaskType());
 
-    log.info("Submitted job {} of type {}", jobId, request.getTaskType());
-    return new JobResponse(jobId, "QUEUED", null);
+        log.info("Publishing job to Kafka topic ai-jobs: {}", message);
+
+        ListenableFuture<SendResult<String, Map<String, String>>> future =
+                kafkaTemplate.send("ai-jobs", message);
+
+        future.addCallback(new ListenableFutureCallback<>() {
+
+            @Override
+            public void onSuccess(SendResult<String, Map<String, String>> result) {
+                log.info("Successfully published job {} to Kafka partition {} offset {}",
+                        jobId,
+                        result.getRecordMetadata().partition(),
+                        result.getRecordMetadata().offset());
+            }
+
+            @Override
+            public void onFailure(Throwable ex) {
+                log.error("Failed to publish job {} to Kafka", jobId, ex);
+                redisTemplate.opsForHash().put("job:" + jobId, "status", "FAILED");
+            }
+        });
+
+        meterRegistry.counter("jobs_submitted_total",
+                "task_type", request.getTaskType()).increment();
+
+        return new JobResponse(jobId, "QUEUED", null);
     }
 
     public JobResponse getJob(String jobId) {
@@ -64,6 +85,7 @@ public class JobService {
 
         String status = (String) state.get("status");
         String result = (String) state.getOrDefault("result", null);
+
         return new JobResponse(jobId, status, result);
     }
 }

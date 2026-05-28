@@ -4,6 +4,9 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    properties:
+      spring.json.add.type.headers: false
+      spring.json.trusted.packages: "*"
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/orchestrator}
     username: admin

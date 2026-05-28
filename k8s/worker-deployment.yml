@@ -13,17 +13,21 @@ spec:
       labels:
         app: worker
     spec:
+      initContainers:
+      - name: wait-for-kafka
+        image: busybox
+        command: ['sh', '-c', 'until nc -z kafka-svc 9092; do echo waiting for kafka; sleep 3; done']
       containers:
       - name: worker
-        image: ai-orchestration-worker:latest
-        imagePullPolicy: Never
+        image: gcr.io/ai-orchestration-moulya/ai-orchestration-worker:latest
+        imagePullPolicy: Always
         envFrom:
         - configMapRef:
             name: app-config
         resources:
           requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
             memory: "1Gi"
             cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
