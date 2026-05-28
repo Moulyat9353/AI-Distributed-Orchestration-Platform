@@ -1,0 +1,67 @@
+name: Build and Deploy to GKE
+
+on:
+  push:
+    branches: [master]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+  GKE_CLUSTER: orchestrator-cluster
+  GKE_ZONE: us-east1-b
+  API_IMAGE: gcr.io/${{ secrets.GCP_PROJECT }}/ai-orchestration-api
+  WORKER_IMAGE: gcr.io/${{ secrets.GCP_PROJECT }}/ai-orchestration-worker
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+
+    - name: Configure Docker for GCR
+      run: gcloud auth configure-docker --quiet
+
+    - name: Build API image
+      run: |
+        docker build -t $API_IMAGE:$GITHUB_SHA -t $API_IMAGE:latest \
+          -f docker/api.Dockerfile ./api
+
+    - name: Build Worker image
+      run: |
+        docker build -t $WORKER_IMAGE:$GITHUB_SHA -t $WORKER_IMAGE:latest \
+          -f docker/worker.Dockerfile ./worker
+
+    - name: Push API image to GCR
+      run: |
+        docker push $API_IMAGE:$GITHUB_SHA
+        docker push $API_IMAGE:latest
+
+    - name: Push Worker image to GCR
+      run: |
+        docker push $WORKER_IMAGE:$GITHUB_SHA
+        docker push $WORKER_IMAGE:latest
+
+    - name: Get GKE credentials
+      run: |
+        gcloud container clusters get-credentials $GKE_CLUSTER \
+          --zone $GKE_ZONE --project $PROJECT_ID
+
+    - name: Deploy to GKE
+      run: |
+        kubectl apply -f k8s/
+        kubectl rollout restart deployment/api -n orchestrator
+        kubectl rollout restart deployment/worker -n orchestrator
+        kubectl rollout status deployment/api -n orchestrator
+        kubectl rollout status deployment/worker -n orchestrator
+
+    - name: Verify deployment
+      run: kubectl get pods -n orchestrator
