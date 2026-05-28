@@ -11,8 +11,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
-import org.springframework.util.concurrent.ListenableFuture;
-import org.springframework.util.concurrent.ListenableFutureCallback;
+
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -49,25 +48,9 @@ public class JobService {
 
         log.info("Publishing job to Kafka topic ai-jobs: {}", message);
 
-        ListenableFuture<SendResult<String, Map<String, String>>> future =
-                kafkaTemplate.send("ai-jobs", message);
+        kafkaTemplate.send("ai-jobs", message);
 
-        future.addCallback(new ListenableFutureCallback<>() {
-
-            @Override
-            public void onSuccess(SendResult<String, Map<String, String>> result) {
-                log.info("Successfully published job {} to Kafka partition {} offset {}",
-                        jobId,
-                        result.getRecordMetadata().partition(),
-                        result.getRecordMetadata().offset());
-            }
-
-            @Override
-            public void onFailure(Throwable ex) {
-                log.error("Failed to publish job {} to Kafka", jobId, ex);
-                redisTemplate.opsForHash().put("job:" + jobId, "status", "FAILED");
-            }
-        });
+        
 
         meterRegistry.counter("jobs_submitted_total",
                 "task_type", request.getTaskType()).increment();
